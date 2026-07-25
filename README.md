@@ -28,6 +28,12 @@ cd cine-colombia-cli
 bun install
 ```
 
+Consultar la cartelera, los horarios, las sillas y comprar como invitado funciona solo
+con eso. **`cine login` necesita además Node.js** en el PATH, porque el paso del
+navegador corre en un subproceso Node: `chromium.launch()` de Playwright nunca retorna
+bajo Bun en Windows. Sin Node, el resto de la CLI funciona igual y solo `login` avisa
+que falta.
+
 Opcional, para dejarlo como comando global:
 
 ```bash
@@ -213,8 +219,39 @@ Reiniciá Claude Desktop y las herramientas aparecen disponibles.
 
 ### Claude Code
 
+**No hace falta configurar nada.** El repo trae un `.mcp.json` con alcance de proyecto,
+así que basta con entrar y abrir Claude:
+
 ```bash
-claude mcp add cine-colombia -- bun run /ruta/absoluta/a/cine-colombia-cli/src/mcp/server.ts
+cd cine-colombia-cli
+bun install
+claude
+```
+
+La primera vez Claude pide aprobar el servidor del proyecto, porque ejecutar un
+comando declarado en un repo ajeno es una decisión del usuario y no del repo. Después
+de aceptar, las diez herramientas quedan disponibles y ya se puede preguntar "¿qué dan
+hoy en el Andino?".
+
+El `.mcp.json` es deliberadamente portable: invoca `bun` del PATH y una ruta relativa,
+sin nada atado a una máquina concreta.
+
+```json
+{
+  "mcpServers": {
+    "cine-colombia": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["run", "src/mcp/server.ts"]
+    }
+  }
+}
+```
+
+Para comprobar que quedó conectado:
+
+```bash
+claude mcp list
 ```
 
 ### Otros agentes (Cursor, Windsurf, Continue, opencode)
