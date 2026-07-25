@@ -107,8 +107,9 @@ Las secciones son las del propio teatro (`Confiteria`, `Sushi`, `Cinepolitana`,
 ### Cuenta
 
 ```bash
-cine login     # abre el navegador para que inicies sesión
-cine cuenta    # tu perfil y tus boletas activas
+cine login                  # abre el navegador para que inicies sesión
+cine login --no-recordar    # sesión corta (30 min) en una máquina compartida
+cine cuenta                 # tu perfil, tus boletas activas y cuándo vence la sesión
 cine logout
 ```
 
@@ -116,6 +117,15 @@ El login de Cine Colombia está protegido por reCAPTCHA, así que **ninguna CLI 
 autenticarse enviando credenciales** — para eso existe reCAPTCHA. `cine login` abre un
 navegador real, iniciás sesión vos, y la CLI guarda únicamente la cookie de sesión.
 **Tu contraseña nunca pasa por esta CLI**: la captura arranca después del login.
+
+El navegador corre en un subproceso de Node, no en Bun: `chromium.launch()` de
+Playwright nunca retorna bajo Bun en Windows, así que el paso del navegador vive en
+`scripts/capture-session.mjs`.
+
+**La sesión dura 30 días, no 30 minutos.** La cookie lleva su propia vida útil y el
+servidor la decide según la casilla "Mantenerme registrado": sin marcar expira en 30
+minutos, marcada en 30 días. `cine login` la marca por defecto; `--no-recordar` la
+deja corta si no querés una credencial de 30 días en disco.
 
 Con la sesión vinculada, `cine comprar` completa tus datos solo (nombre, correo y
 cédula salen de tu cuenta) y no hay que guardar nada a mano.
@@ -317,6 +327,9 @@ src/services/api/mappers.ts          formato OCAPI -> modelo de dominio
 src/services/auth/token-provider.ts  obtención y caché del JWT
 src/services/auth/html-fetcher.ts    estrategias de descarga (curl, fetch)
 src/services/auth/member-session.ts  sesión de cuenta (cookie)
+src/services/auth/session-capture.ts frontera con el navegador de login
+scripts/capture-session.mjs          paso del navegador (Node, Playwright)
+scripts/remember-me.mjs              marca "Mantenerme registrado"
 src/services/cache/cache-manager.ts  caché en disco con TTL
 src/lib/                             formato, búsqueda, mapa de sillas, booking,
                                      navegador, errores, logger
@@ -327,8 +340,9 @@ src/types/                           tipos crudos (OCAPI) y de dominio
 
 - **El pago se completa en el navegador.** PlacetoPay es una pasarela PCI con
   fingerprinting antifraude; automatizarla no es viable ni apropiado.
-- **El login requiere una persona** por el reCAPTCHA. La sesión se guarda y se reutiliza,
-  pero hay que renovarla cuando expire.
+- **El login requiere una persona** por el reCAPTCHA. La sesión se guarda y se reutiliza
+  por 30 días; al expirar hay que volver a correr `cine login`. No se renueva sola: la API
+  no devuelve una cookie nueva, así que renovarla exige un navegador de todos modos.
 - La API es interna y sin versionar: puede cambiar sin avisar. `bun run smoke` es el canario.
 - La confitería se puede consultar, pero todavía no se agrega a la orden.
 
@@ -337,7 +351,9 @@ src/types/                           tipos crudos (OCAPI) y de dominio
 - El token de la API y la cookie de sesión se guardan en `data/` con permisos `0600` y
   están en `.gitignore`. Son credenciales: no los compartas.
 - La contraseña de tu cuenta nunca es leída, almacenada ni transmitida por esta CLI.
-- `cine logout` borra la sesión guardada.
+- `cine logout` borra la sesión guardada **y el perfil del navegador** (`data/chrome-profile`).
+  Ambos hacen falta: Chrome persiste la misma cookie en su perfil, así que borrar solo la
+  copia de la CLI dejaría una credencial usable en disco.
 
 ## Licencia
 
