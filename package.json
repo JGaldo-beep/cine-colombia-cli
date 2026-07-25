@@ -1,6 +1,6 @@
 {
   "name": "cine-colombia-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cartelera, horarios, mapa de sillas y compra de boletas de Cine Colombia desde la terminal, con servidor MCP",
   "type": "module",
   "bin": {

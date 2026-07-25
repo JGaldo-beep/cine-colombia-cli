@@ -514,6 +514,17 @@ server.tool(
       await orderService.setCustomer(order.id, customer);
       const payment = await orderService.createPaymentRedirect(order.id);
 
+      // El vencimiento se entrega ya legible y en hora de Colombia, además del ISO.
+      //
+      // Devolver solo el ISO en UTC no era neutral: el modelo lo mostraba tal cual, y
+      // a la 1:11 de la mañana leer "vence 06:39 AM" hace pensar que hay cinco horas
+      // de margen cuando quedan cinco minutos. Un dato correcto presentado en otra
+      // zona horaria desinforma igual que un dato equivocado.
+      const vence = payment.expiresAt ?? null;
+      const minutosRestantes = vence
+        ? Math.max(0, Math.round((new Date(vence).getTime() - Date.now()) / 60000))
+        : null;
+
       return json({
         orden: order.id,
         sillas: matched.map(({ seat }) => seatCode(seat)),
@@ -521,9 +532,13 @@ server.tool(
         totalLegible: formatMoney(withSeats.totalPrice.valueIncludingTax),
         cargoServicio: withSeats.bookingFee?.valueIncludingTax ?? null,
         enlacePago: payment.url,
-        vence: payment.expiresAt,
+        vence,
+        venceLegible: vence ? `${formatTime(vence)} (hora de Colombia)` : null,
+        minutosRestantes,
         instruccion:
-          'Entrega el enlace a la persona para que pague en su navegador. Si no paga antes de que venza, las sillas se liberan solas.',
+          'Entrega el enlace a la persona para que pague en su navegador. Al avisar cuándo ' +
+          'vence usa "minutosRestantes" o "venceLegible", nunca el campo "vence" en crudo: ' +
+          'está en UTC y confunde a quien no esté en esa zona.',
       });
     } catch (error) {
       // Never leave seats blocked because our own sequence failed.
