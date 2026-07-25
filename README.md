@@ -342,7 +342,7 @@ scripts/capture-session.mjs          paso del navegador (Node, Playwright)
 scripts/remember-me.mjs              marca "Mantenerme registrado"
 src/services/cache/cache-manager.ts  caché en disco con TTL
 src/lib/                             formato, búsqueda, mapa de sillas, booking,
-                                     navegador, errores, logger
+                                     navegador, errores, logger, banner
 src/types/                           tipos crudos (OCAPI) y de dominio
 ```
 

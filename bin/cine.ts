@@ -12,8 +12,14 @@ import { cuenta, login, logout } from '../src/commands/login.js';
 import { pelicula } from '../src/commands/pelicula.js';
 import { teatros } from '../src/commands/teatros.js';
 import { APP_DESCRIPTION, APP_VERSION } from '../src/config/constants.js';
+import { shouldShowBanner, showBanner } from '../src/lib/banner.js';
 import { CineError } from '../src/lib/errors.js';
 import { LogLevel, logger } from '../src/lib/logger.js';
+
+// Only for the welcome and help screens, and never into a pipe: see banner.ts.
+if (shouldShowBanner(process.argv.slice(2), process.stdout.isTTY === true)) {
+  showBanner(APP_DESCRIPTION);
+}
 
 const program = new Command();
 
