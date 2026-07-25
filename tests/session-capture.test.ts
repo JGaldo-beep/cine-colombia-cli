@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'bun:test';
+import { CineError } from '../src/lib/errors.js';
+import {
+  CAPTURE_EXIT,
+  describeCaptureFailure,
+  parseCaptureResult,
+} from '../src/services/auth/session-capture.js';
+
+describe('describeCaptureFailure', () => {
+  it('tells the person how to install Playwright when it is missing', () => {
+    const error = describeCaptureFailure(CAPTURE_EXIT.playwrightMissing);
+    expect(error.code).toBe('PLAYWRIGHT_MISSING');
+    expect(error.message).toContain('bun add playwright');
+  });
+
+  it('distinguishes a timeout from a browser the person closed', () => {
+    // These need different wording: one means "you ran out of time", the other
+    // means "you changed your mind". Telling someone they timed out when they
+    // deliberately closed the window is confusing.
+    expect(describeCaptureFailure(CAPTURE_EXIT.timeout).code).toBe('LOGIN_TIMEOUT');
+    expect(describeCaptureFailure(CAPTURE_EXIT.browserClosed).code).toBe('LOGIN_CANCELLED');
+  });
+
+  it('points at Chrome when the browser could not start', () => {
+    const error = describeCaptureFailure(CAPTURE_EXIT.launchFailed);
+    expect(error.code).toBe('LOGIN_BROWSER_FAILED');
+    expect(error.message).toContain('Chrome');
+  });
+
+  it('reports a usage error as internal rather than blaming the person', () => {
+    expect(describeCaptureFailure(CAPTURE_EXIT.usage).code).toBe('LOGIN_HELPER_USAGE');
+  });
+
+  it('still produces an actionable error for unknown exit codes', () => {
+    // A crash or a signal must not surface as "undefined".
+    const error = describeCaptureFailure(99);
+    expect(error.code).toBe('LOGIN_FAILED');
+    expect(error.message).toContain('99');
+    expect(error.message).toContain('cine login');
+  });
+
+  it('handles a null exit code, which is what a killed process reports', () => {
+    const error = describeCaptureFailure(null);
+    expect(error.code).toBe('LOGIN_FAILED');
+    expect(error.message).toContain('desconocido');
+  });
+
+  it('always returns a CineError so the CLI can render it uniformly', () => {
+    for (const code of [...Object.values(CAPTURE_EXIT), null, 42]) {
+      expect(describeCaptureFailure(code)).toBeInstanceOf(CineError);
+    }
+  });
+});
+
+describe('parseCaptureResult', () => {
+  it('reads the cookie and its expiry', () => {
+    const result = parseCaptureResult(
+      JSON.stringify({ cookie: 'abc123', expiresAt: 1800000000000 })
+    );
+    expect(result).toEqual({ cookie: 'abc123', expiresAt: 1800000000000 });
+  });
+
+  it('treats a session cookie with no expiry as null', () => {
+    // The helper normalises Playwright's -1 to null; anything non-numeric that
+    // still reaches here must not become NaN.
+    expect(
+      parseCaptureResult(JSON.stringify({ cookie: 'abc', expiresAt: null })).expiresAt
+    ).toBeNull();
+    expect(parseCaptureResult(JSON.stringify({ cookie: 'abc' })).expiresAt).toBeNull();
+    expect(
+      parseCaptureResult(JSON.stringify({ cookie: 'abc', expiresAt: 'pronto' })).expiresAt
+    ).toBeNull();
+  });
+
+  it('rejects a result with no usable cookie', () => {
+    // Saving an empty cookie would produce a session that looks valid and then
+    // fails with an opaque 401 on the next command.
+    for (const payload of ['{}', JSON.stringify({ cookie: '' }), JSON.stringify({ cookie: 7 })]) {
+      expect(() => parseCaptureResult(payload)).toThrow(CineError);
+    }
+    expect(() => parseCaptureResult('{}')).toThrow(/no devolvió una sesión válida/);
+  });
+
+  it('rejects contents that are not JSON', () => {
+    expect(() => parseCaptureResult('no-es-json')).toThrow(/No se pudo leer/);
+    expect(() => parseCaptureResult('')).toThrow(CineError);
+  });
+});
