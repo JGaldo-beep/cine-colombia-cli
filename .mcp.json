@@ -3,10 +3,7 @@
     "cine-colombia": {
       "type": "stdio",
       "command": "bun",
-      "args": [
-        "run",
-        "src/mcp/server.ts"
-      ],
+      "args": ["run", "src/mcp/server.ts"],
       "env": {}
     }
   }
