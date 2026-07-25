@@ -205,3 +205,47 @@ describe('renderSeatMap', () => {
     expect(text).toContain('(4 libres)'); // PREFERENCIAL: all 4 free
   });
 });
+
+describe('renderSeatMap horizontal orientation', () => {
+  /**
+   * Cine Colombia's own chart puts seat 1 on the right and counts leftwards, so a
+   * row reads 16…9 | 8…1. The API numbers columns the other way round, so drawing
+   * columns left to right mirrors the room and sends someone to the wrong side of
+   * the cinema. Verified against showtime 6493-7806 (Andino, sala 1).
+   */
+  it('puts the lowest seat number on the right', () => {
+    // Row A here has seat 1 at column 1 and seat 2 at column 3.
+    const map = renderSeatMap(layout, availabilityOf({ '1_3_1': 'Sold' }), { plain: true });
+    const rowA = map.find((line) => line.trimStart().startsWith('A'));
+
+    // Seat A1 is Sold, A2 is free. Mirrored, A1 must be the rightmost glyph.
+    const glyphs = (rowA ?? '').replace(/^\s*A\s/, '');
+    expect(glyphs.trimEnd().endsWith('●')).toBe(true);
+    expect(glyphs.trimStart().startsWith('○')).toBe(true);
+  });
+
+  it('keeps aisles as gaps after mirroring', () => {
+    // Column 2 has no seat in this layout, so a gap must survive in the middle
+    // rather than the map silently closing it.
+    const map = renderSeatMap(layout, availabilityOf(), { plain: true });
+    const rowA = map.find((line) => line.trimStart().startsWith('A')) ?? '';
+    const glyphs = rowA.replace(/^\s*A\s/, '');
+
+    expect(glyphs).toMatch(/○\s{3}○/);
+  });
+
+  it('mirrors every row consistently', () => {
+    // A per-row difference would mean seats on one line disagreeing with another.
+    const map = renderSeatMap(
+      layout,
+      availabilityOf({ '1_3_1': 'Sold', '1_2_1': 'Sold', '1_1_1': 'Sold' }),
+      { plain: true }
+    );
+
+    for (const label of ['A', 'B', 'C']) {
+      const row = map.find((line) => line.trimStart().startsWith(label)) ?? '';
+      const glyphs = row.replace(/^\s*[A-Z]\s/, '').trimEnd();
+      expect(glyphs.endsWith('●')).toBe(true);
+    }
+  });
+});

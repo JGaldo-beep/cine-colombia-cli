@@ -76,8 +76,20 @@ export function renderSeatMap(
       const cells: string[] = new Array(columnCount).fill(GLYPH.gap);
 
       for (const seat of row.seats) {
-        // Grid coordinates are 1-based.
-        const index = seat.columnIndex - 1;
+        // The horizontal axis is mirrored on purpose.
+        //
+        // In the API, `columnIndex` grows with the printed seat number: column 1 is
+        // seat 1. Cine Colombia's own seating chart puts seat 1 on the **right** and
+        // counts leftwards, so row A reads 16…9 | 8…1. Drawing columns left to right
+        // therefore produced a mirror image of the room, and someone told "H10" would
+        // look for it on the wrong side.
+        //
+        // Verified against showtime 6493-7806 (Andino, sala 1) by comparing with the
+        // website: the unavailable seats matched exactly in every row (C: 6 and 7;
+        // D: 7, 8, 9, 10, 12; E: only seat 3 free), while appearing on the opposite
+        // side. Checked in four screens that the number always grows with
+        // `columnIndex`, so one global mirror is correct rather than per-room luck.
+        const index = columnCount - seat.columnIndex;
         if (index < 0 || index >= columnCount) continue;
         cells[index] = paint.seat(availability.statuses.get(seat.id));
       }

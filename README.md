@@ -99,6 +99,12 @@ cine asientos 6493-7850 --lista    # solo el listado de sillas libres
 Los huecos del mapa son pasillos reales: las sillas se ubican por su coordenada de
 grilla, no por su etiqueta, porque no coinciden (la silla `A16` está en la columna 18).
 
+El mapa se dibuja con la misma orientación que usa Cine Colombia: la fila A junto a la
+pantalla, y **la silla 1 a la derecha**, contando hacia la izquierda. En la API el
+`columnIndex` crece con el número de silla, así que dibujarlo de izquierda a derecha
+espejaba la sala y mandaba a la persona al lado equivocado. Verificado contra la web con
+la función `6493-7806`, comparando fila por fila qué sillas estaban ocupadas.
+
 ### Confitería
 
 ```bash
