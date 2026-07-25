@@ -4,9 +4,9 @@
   "description": "Cartelera, horarios, mapa de sillas y compra de boletas de Cine Colombia desde la terminal, con servidor MCP",
   "type": "module",
   "bin": {
-    "cine": "./dist/cine.js",
-    "cine-colombia-cli": "./dist/cine.js",
-    "cine-mcp": "./dist/mcp.js"
+    "cine": "dist/cine.js",
+    "cine-colombia-cli": "dist/cine.js",
+    "cine-mcp": "dist/mcp.js"
   },
   "scripts": {
     "dev": "bun run bin/cine.ts",
