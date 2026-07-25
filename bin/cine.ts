@@ -136,6 +136,15 @@ program
   .option('--json', 'salida en JSON')
   .action(horarios);
 
+// Running `cine` with no arguments is a greeting, not a mistake. Commander's
+// default treats a missing command as an error: help goes to stderr and the exit
+// code is 1, so a shell, a CI step or a `&&` chain reads the welcome screen as a
+// failure. Answer it as the successful request it is.
+if (process.argv.slice(2).length === 0) {
+  program.outputHelp();
+  process.exit(0);
+}
+
 try {
   await program.parseAsync();
 } catch (error) {

@@ -33,7 +33,11 @@ import type {
   MemberResponse,
   MenuSection,
 } from '../../types/member.js';
-import { type MemberSessionStore, memberSession } from '../auth/member-session.js';
+import {
+  type MemberSessionStore,
+  isSessionExpiredError,
+  memberSession,
+} from '../auth/member-session.js';
 import { type TokenProvider, tokenProvider } from '../auth/token-provider.js';
 import { type CacheManager, cache } from '../cache/cache-manager.js';
 import {
@@ -94,7 +98,13 @@ export class OcapiClient {
       const data = await this.request<MemberResponse>('/ocapi/v1/members/current');
       return toMember(data.member);
     } catch (error) {
+      // 401 means the cookie was not accepted; the 403 below means it was accepted
+      // and has since expired. Both mean "not signed in" to a caller.
       if (error instanceof ApiError && error.status === 401) return null;
+      if (isSessionExpiredError(error)) {
+        this.member.markExpired();
+        return null;
+      }
       throw error;
     }
   }
@@ -103,10 +113,18 @@ export class OcapiClient {
   async getActiveOrders(): Promise<MemberOrder[]> {
     if (!this.member.isLoggedIn()) return [];
 
-    const data = await this.request<MemberOrdersResponse>(
-      '/ocapi/v1/members/current/completed-orders/active'
-    );
-    return toMemberOrders(data);
+    try {
+      const data = await this.request<MemberOrdersResponse>(
+        '/ocapi/v1/members/current/completed-orders/active'
+      );
+      return toMemberOrders(data);
+    } catch (error) {
+      if (isSessionExpiredError(error)) {
+        this.member.markExpired();
+        return [];
+      }
+      throw error;
+    }
   }
 
   // -------------------------------------------------------------------------

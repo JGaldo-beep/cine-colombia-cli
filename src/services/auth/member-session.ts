@@ -18,6 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { CACHE_DIR } from '../../config/constants.js';
+import { ApiError } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 
 /** Cookie that carries the member's identity. */
@@ -47,6 +48,29 @@ export interface MemberSession {
  * why, otherwise the CLI looks broken.
  */
 export type MemberSessionStatus = 'active' | 'expired' | 'anonymous';
+
+/**
+ * Whether an API failure means "your account session died".
+ *
+ * Cine Colombia reports this as **403, not 401**, with its own error body:
+ *
+ *   { "status": 403,
+ *     "title": "Loyalty Member Authentication Token Expired",
+ *     "detail": "Loyalty member authentication token is expired." }
+ *
+ * That matters twice. The client only retries 401s, so this never triggered a
+ * refresh; and it surfaced to the person as a raw "La API respondió 403" instead of
+ * "tu sesión expiró". Matched on the message rather than on the status alone,
+ * because a 403 can also mean something entirely unrelated.
+ */
+export function isSessionExpiredError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 403) return false;
+
+  const haystack = `${error.message} ${typeof error.details === 'string' ? error.details : JSON.stringify(error.details ?? '')}`;
+  return (
+    /loyalty member authentication token/i.test(haystack) || /token is expired/i.test(haystack)
+  );
+}
 
 /**
  * What to tell someone the CLI is not acting as their account.
@@ -87,7 +111,18 @@ export class MemberSessionStore {
         return null;
       }
 
-      const parsed = JSON.parse(readFileSync(this.path, 'utf-8')) as Partial<MemberSession>;
+      const parsed = JSON.parse(readFileSync(this.path, 'utf-8')) as Partial<MemberSession> & {
+        expiredAt?: string;
+      };
+
+      // A tombstone left by markExpired(): the credential is gone but we still know
+      // why, so the message stays accurate on every later command.
+      if (typeof parsed.expiredAt === 'string' && parsed.expiredAt) {
+        this.expired = true;
+        this.memo = null;
+        return null;
+      }
+
       if (typeof parsed.cookie !== 'string' || !parsed.cookie) {
         this.memo = null;
         return null;
@@ -149,6 +184,47 @@ export class MemberSessionStore {
   status(): MemberSessionStatus {
     if (this.load()) return 'active';
     return this.expired ? 'expired' : 'anonymous';
+  }
+
+  /**
+   * Record that the server rejected this session, whatever the file claims.
+   *
+   * The cookie states its own `ExpiryDate`, but that is only how long the browser
+   * keeps it: the server invalidates the encrypted token inside far sooner. So a
+   * session can be "valid" on disk and dead in practice, and the only authority is
+   * the API's answer. The stored cookie is deleted because it is proven useless,
+   * and keeping a dead credential on disk has no upside.
+   */
+  markExpired(): void {
+    const previous = this.load();
+
+    this.memo = null;
+    this.expired = true;
+
+    // A tombstone rather than a deletion: the cookie is removed because it is
+    // proven useless, but the *fact* that it expired outlives the process. Without
+    // it the next command would find no file and say "you never signed in", so two
+    // runs of the same command would explain the same situation differently.
+    try {
+      mkdirSync(dirname(this.path), { recursive: true });
+      writeFileSync(
+        this.path,
+        JSON.stringify(
+          {
+            cookie: '',
+            capturedAt: previous?.capturedAt ?? new Date(0).toISOString(),
+            expiresAt: null,
+            email: previous?.email ?? null,
+            expiredAt: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+        { mode: 0o600 }
+      );
+    } catch (error) {
+      logger.debug('No se pudo registrar la expiración de la sesión:', error);
+    }
   }
 
   /** Milliseconds until the session expires, or null when it has no known expiry. */

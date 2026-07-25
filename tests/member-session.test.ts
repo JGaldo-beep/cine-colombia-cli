@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ApiError } from '../src/lib/errors.js';
 import { formatTimeRemaining } from '../src/lib/format.js';
 import {
   type MemberSessionStatus,
   MemberSessionStore,
+  isSessionExpiredError,
   sessionNotice,
 } from '../src/services/auth/member-session.js';
 
@@ -130,5 +132,105 @@ describe('formatTimeRemaining', () => {
 
   it('admits when there is no known expiry instead of inventing one', () => {
     expect(formatTimeRemaining(null)).toBe('sin vencimiento conocido');
+  });
+});
+
+describe('MemberSessionStore.markExpired', () => {
+  it('removes the credential but remembers why', () => {
+    // The cookie is proven useless, so it must not stay on disk; but the reason has
+    // to survive, or the next command would say "you never signed in".
+    const store = storeWith({
+      cookie: 'muerta',
+      capturedAt: '2026-07-25T02:19:26.248Z',
+      expiresAt: Date.now() + 30 * 24 * HOUR,
+      email: 'alguien@ejemplo.com',
+    });
+    expect(store.status()).toBe('active');
+
+    store.markExpired();
+
+    expect(store.status()).toBe('expired');
+    expect(store.cookieHeader()).toBeNull();
+    expect(store.isLoggedIn()).toBe(false);
+  });
+
+  it('keeps reporting expiry in a later process', () => {
+    // A fresh store over the same directory is what the next command sees.
+    const dir = mkdtempSync(join(tmpdir(), 'cine-session-'));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, '.member-session.json'),
+      JSON.stringify({ cookie: 'viva', expiresAt: Date.now() + HOUR, email: null })
+    );
+
+    new MemberSessionStore(dir).markExpired();
+
+    const next = new MemberSessionStore(dir);
+    expect(next.status()).toBe('expired');
+    expect(next.cookieHeader()).toBeNull();
+  });
+
+  it('does not leave the cookie value on disk', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cine-session-'));
+    dirs.push(dir);
+    const file = join(dir, '.member-session.json');
+    writeFileSync(file, JSON.stringify({ cookie: 'secreto-largo', expiresAt: null, email: null }));
+
+    new MemberSessionStore(dir).markExpired();
+
+    expect(readFileSync(file, 'utf-8')).not.toContain('secreto-largo');
+  });
+
+  it('is undone by a fresh login', () => {
+    const store = storeWith({ cookie: 'vieja', expiresAt: Date.now() + HOUR });
+    store.markExpired();
+    expect(store.status()).toBe('expired');
+
+    store.save({
+      cookie: 'nueva',
+      capturedAt: new Date().toISOString(),
+      expiresAt: Date.now() + HOUR,
+      email: null,
+    });
+    expect(store.status()).toBe('active');
+  });
+
+  it('is undone by an explicit logout', () => {
+    // Logging out is a choice; it must not keep saying "expired" afterwards.
+    const store = storeWith({ cookie: 'vieja', expiresAt: Date.now() + HOUR });
+    store.markExpired();
+    store.clear();
+    expect(store.status()).toBe('anonymous');
+  });
+});
+
+describe('isSessionExpiredError', () => {
+  it('recognises the 403 Cine Colombia sends for a dead session', () => {
+    // It is 403, not 401, which is why it slipped past the retry path.
+    const body = JSON.stringify({
+      status: 403,
+      title: 'Loyalty Member Authentication Token Expired',
+      detail: 'Loyalty member authentication token is expired.',
+    });
+    expect(
+      isSessionExpiredError(
+        new ApiError('API_ERROR', 'La API respondió 403 en /ocapi/v1/members/current', 403, body)
+      )
+    ).toBe(true);
+  });
+
+  it('ignores a 403 that means something else', () => {
+    // Not every refusal is an expired session.
+    expect(
+      isSessionExpiredError(new ApiError('API_ERROR', 'La API respondió 403', 403, 'Forbidden'))
+    ).toBe(false);
+  });
+
+  it('ignores other statuses and non-API errors', () => {
+    const body = 'Loyalty member authentication token is expired.';
+    expect(isSessionExpiredError(new ApiError('API_ERROR', 'x', 401, body))).toBe(false);
+    expect(isSessionExpiredError(new ApiError('API_ERROR', 'x', 500, body))).toBe(false);
+    expect(isSessionExpiredError(new Error('cualquier cosa'))).toBe(false);
+    expect(isSessionExpiredError(null)).toBe(false);
   });
 });
