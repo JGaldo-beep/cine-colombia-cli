@@ -122,10 +122,17 @@ El navegador corre en un subproceso de Node, no en Bun: `chromium.launch()` de
 Playwright nunca retorna bajo Bun en Windows, así que el paso del navegador vive en
 `scripts/capture-session.mjs`.
 
-**La sesión dura 30 días, no 30 minutos.** La cookie lleva su propia vida útil y el
-servidor la decide según la casilla "Mantenerme registrado": sin marcar expira en 30
-minutos, marcada en 30 días. `cine login` la marca por defecto; `--no-recordar` la
-deja corta si no querés una credencial de 30 días en disco.
+**Cuánto dura la sesión.** `cine login` marca "Mantenerme registrado" por defecto, lo
+que cambia lo que la cookie declara: sin marcar dice `isPersistent: false` y expira en
+30 minutos, marcada dice `isPersistent: true` y declara 30 días. `--no-recordar` la
+deja corta a propósito.
+
+Pero **ese campo no es la validez real**: solo dice cuánto guarda la cookie el
+navegador. El servidor invalida el token cifrado que va dentro mucho antes — medido,
+una sesión con 30 días declarados fue rechazada a los 48 minutos. Cuando eso pasa la
+CLI lo dice ("Tu sesión expiró") y hay que volver a correr `cine login`. No hay
+renovación automática posible: al expirar, el propio sitio deja de reconocer el
+navegador, así que no queda nada que refrescar sin volver a escribir la contraseña.
 
 Con la sesión vinculada, `cine comprar` completa tus datos solo (nombre, correo y
 cédula salen de tu cuenta) y no hay que guardar nada a mano.
@@ -350,9 +357,12 @@ src/types/                           tipos crudos (OCAPI) y de dominio
 
 - **El pago se completa en el navegador.** PlacetoPay es una pasarela PCI con
   fingerprinting antifraude; automatizarla no es viable ni apropiado.
-- **El login requiere una persona** por el reCAPTCHA. La sesión se guarda y se reutiliza
-  por 30 días; al expirar hay que volver a correr `cine login`. No se renueva sola: la API
-  no devuelve una cookie nueva, así que renovarla exige un navegador de todos modos.
+- **El login requiere una persona** por el reCAPTCHA, y **la sesión es corta**. La cookie
+  declara 30 días pero el servidor la invalida mucho antes (medido: 48 minutos), así que
+  hay que volver a correr `cine login` cada tanto. No se renueva sola, y no por falta de
+  intentarlo: cuando la sesión muere, el sitio deja de reconocer al navegador incluso con
+  el perfil guardado, así que no hay nada que refrescar. La CLI al menos lo dice claro en
+  vez de fallar con un 403 crudo.
 - La API es interna y sin versionar: puede cambiar sin avisar. `bun run smoke` es el canario.
 - La confitería se puede consultar, pero todavía no se agrega a la orden.
 
