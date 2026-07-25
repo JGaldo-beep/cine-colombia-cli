@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { CACHE_DIR } from '../../config/constants.js';
+import { CACHE_DIR, PROJECT_ROOT } from '../../config/constants.js';
 import { CineError } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { MEMBER_COOKIE_NAME } from './member-session.js';
@@ -22,7 +22,9 @@ export const SIGN_IN_URL = 'https://multiplex.cinecolombia.com/sign-in';
 /** Long enough to find a password and solve a reCAPTCHA without rushing. */
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
-const HELPER_PATH = 'scripts/capture-session.mjs';
+// Absolute for the same reason CACHE_DIR is: `cine login` must work from any
+// working directory, not only from the project root.
+const HELPER_PATH = join(PROJECT_ROOT, 'scripts', 'capture-session.mjs');
 const RESULT_FILE = '.session-capture.json';
 
 /**

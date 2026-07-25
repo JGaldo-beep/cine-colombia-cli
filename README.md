@@ -128,11 +128,22 @@ que cambia lo que la cookie declara: sin marcar dice `isPersistent: false` y exp
 deja corta a propósito.
 
 Pero **ese campo no es la validez real**: solo dice cuánto guarda la cookie el
-navegador. El servidor invalida el token cifrado que va dentro mucho antes — medido,
-una sesión con 30 días declarados fue rechazada a los 48 minutos. Cuando eso pasa la
-CLI lo dice ("Tu sesión expiró") y hay que volver a correr `cine login`. No hay
-renovación automática posible: al expirar, el propio sitio deja de reconocer el
-navegador, así que no queda nada que refrescar sin volver a escribir la contraseña.
+navegador. El servidor invalida el token cifrado que va dentro muchísimo antes.
+Medido dos veces, con sondas cada 5 minutos: una sesión con 30 días declarados murió
+**entre los 15 y los 20 minutos**, y otra ya estaba muerta a los 48. Usarla no la
+mantiene viva.
+
+En la práctica eso significa que marcar la casilla **no alarga la sesión**: cambia lo
+que la cookie declara, no lo que el servidor respeta. Se deja marcada porque es lo que
+haría cualquier persona, pero no esperes que sirva de nada.
+
+Cuando expira, la CLI lo dice ("Tu sesión expiró") en vez de fallar con un 403 crudo,
+y hay que volver a correr `cine login`. No hay renovación automática posible: al
+expirar, el propio sitio deja de reconocer al navegador incluso con el perfil
+guardado, así que no queda nada que refrescar sin escribir la contraseña otra vez.
+
+**Consecuencia práctica**: si vas a usar `cine cuenta` o comprar con tu cuenta,
+ejecutá `cine login` justo antes. Comprar como invitado no necesita sesión.
 
 Con la sesión vinculada, `cine comprar` completa tus datos solo (nombre, correo y
 cédula salen de tu cuenta) y no hay que guardar nada a mano.
@@ -358,7 +369,7 @@ src/types/                           tipos crudos (OCAPI) y de dominio
 - **El pago se completa en el navegador.** PlacetoPay es una pasarela PCI con
   fingerprinting antifraude; automatizarla no es viable ni apropiado.
 - **El login requiere una persona** por el reCAPTCHA, y **la sesión es corta**. La cookie
-  declara 30 días pero el servidor la invalida mucho antes (medido: 48 minutos), así que
+  declara 30 días pero el servidor la invalida en 15-20 minutos (medido), así que
   hay que volver a correr `cine login` cada tanto. No se renueva sola, y no por falta de
   intentarlo: cuando la sesión muere, el sitio deja de reconocer al navegador incluso con
   el perfil guardado, así que no hay nada que refrescar. La CLI al menos lo dice claro en

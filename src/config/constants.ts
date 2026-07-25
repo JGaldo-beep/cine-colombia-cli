@@ -1,5 +1,8 @@
 // Application constants for Cine Colombia CLI
 
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export const APP_NAME = 'cine-colombia-cli';
 export const APP_VERSION = '0.1.0';
 export const APP_DESCRIPTION = 'Consulta cartelera, teatros y horarios de Cine Colombia';
@@ -75,8 +78,22 @@ export const DEFAULTS = {
  */
 export const TOKEN_REFRESH_BUFFER_MINUTES = 10;
 
-// Cache directory (relative to project root)
-export const CACHE_DIR = 'data';
+/**
+ * Where this installation lives, derived from this file's own location.
+ *
+ * Anchoring to the module rather than to `process.cwd()` matters because the CLI is
+ * not always launched from the project directory. An MCP client starts the server
+ * with whatever working directory it happens to have, and a globally installed
+ * `cine` runs wherever the person is standing. With a relative path the effect was
+ * quiet and confusing rather than loud: the token cache and the session file were
+ * looked up in the wrong place, so `ver_cuenta` answered "no hay sesión" while a
+ * perfectly good session sat on disk, and caches were written into unrelated
+ * directories.
+ */
+export const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** Cache directory, absolute so it does not follow the working directory. */
+export const CACHE_DIR = join(PROJECT_ROOT, 'data');
 
 /** Token cache lives alongside other cached data but is treated as a secret. */
 export const TOKEN_CACHE_FILE = '.auth-token.json';
