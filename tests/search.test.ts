@@ -7,6 +7,7 @@ import {
   searchFilms,
   searchTheatres,
 } from '../src/lib/search.js';
+import { blankToUndefined } from '../src/lib/text.js';
 import type { Film, Theatre } from '../src/types/cine.js';
 
 function makeFilm(overrides: Partial<Film> & Pick<Film, 'id' | 'title'>): Film {
@@ -173,5 +174,40 @@ describe('distanceKm', () => {
     // Straight-line distance is roughly 240 km.
     expect(km).toBeGreaterThan(230);
     expect(km).toBeLessThan(250);
+  });
+});
+
+describe('blankToUndefined', () => {
+  it('treats blank input as no value', () => {
+    // A model sends "" for a field it could not fill; that is not a request to
+    // match everything.
+    expect(blankToUndefined('')).toBeUndefined();
+    expect(blankToUndefined('   ')).toBeUndefined();
+    expect(blankToUndefined('\t\n')).toBeUndefined();
+    expect(blankToUndefined(undefined)).toBeUndefined();
+    expect(blankToUndefined(null)).toBeUndefined();
+  });
+
+  it('keeps real values, trimmed', () => {
+    expect(blankToUndefined('Bogotá')).toBe('Bogotá');
+    expect(blankToUndefined('  Andino  ')).toBe('Andino');
+  });
+
+  it('keeps values that are falsy as strings but meaningful as text', () => {
+    expect(blankToUndefined('0')).toBe('0');
+  });
+});
+
+describe('searchFilms with a blank query', () => {
+  it('returns everything, which is why callers that resolve one film must guard', () => {
+    // Documents the trap: as a list filter "no query" means "no filtering", but
+    // used as a resolver an unguarded [0] would invent an answer.
+    const films = [
+      { id: 'A', title: 'Uno', localTitle: null, genres: [], cast: [] },
+      { id: 'B', title: 'Dos', localTitle: null, genres: [], cast: [] },
+    ] as unknown as Parameters<typeof searchFilms>[0];
+
+    expect(searchFilms(films, '')).toHaveLength(2);
+    expect(blankToUndefined('')).toBeUndefined();
   });
 });

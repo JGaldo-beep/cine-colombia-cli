@@ -22,6 +22,7 @@ import { matchTicketTypeForArea, resolveSeatCodes, seatCode } from '../lib/booki
 import { formatBusinessDate, formatMoney, formatTime, parseUserDate } from '../lib/format.js';
 import { filterByCity, listCities, searchFilms, searchTheatres } from '../lib/search.js';
 import { listAvailableSeats, summariseAvailableSeats } from '../lib/seat-map.js';
+import { blankToUndefined } from '../lib/text.js';
 import { cineApi } from '../services/api/ocapi-client.js';
 import { orderService } from '../services/api/order-service.js';
 
@@ -39,6 +40,18 @@ function fail(message: string) {
   };
 }
 
+/**
+ * Say that a required value arrived empty.
+ *
+ * Models send `""` for fields they could not fill. Without this the empty string
+ * flows into a search, which treats it as "no filter" and returns everything, and
+ * the `[0]` that follows becomes an arbitrary film or theatre presented as the
+ * answer. An error the model can act on is far better than a confident wrong one.
+ */
+function missing(field: string, hint: string) {
+  return fail(`Falta "${field}": ${hint} No se asumió ningún valor.`);
+}
+
 // ---------------------------------------------------------------------------
 // Browsing
 // ---------------------------------------------------------------------------
@@ -50,7 +63,9 @@ server.tool(
     ciudad: z.string().optional().describe('Ciudad, por ejemplo Bogotá o Medellín'),
     genero: z.string().optional().describe('Filtrar por género, por ejemplo terror'),
   },
-  async ({ ciudad, genero }) => {
+  async ({ ciudad: ciudadInput, genero: generoInput }) => {
+    const ciudad = blankToUndefined(ciudadInput);
+    const genero = blankToUndefined(generoInput);
     const films = await cineApi.getFilms();
 
     let selected = films;
@@ -107,8 +122,11 @@ server.tool(
   'Detalle de una película: sinopsis, duración, clasificación, géneros, reparto y tráiler.',
   { busqueda: z.string().describe('Título o ID de la película') },
   async ({ busqueda }) => {
-    const film = searchFilms(await cineApi.getFilms(), busqueda)[0];
-    if (!film) return fail(`No se encontró ninguna película que coincida con "${busqueda}".`);
+    const query = blankToUndefined(busqueda);
+    if (!query) return missing('busqueda', 'indica el título o el ID de la película.');
+
+    const film = searchFilms(await cineApi.getFilms(), query)[0];
+    if (!film) return fail(`No se encontró ninguna película que coincida con "${query}".`);
 
     return json({
       id: film.id,
@@ -136,7 +154,10 @@ server.tool(
       .optional()
       .describe('Coordenada "lat,lng" para ordenar por cercanía, por ejemplo "4.6533,-74.0836"'),
   },
-  async ({ ciudad, cerca }) => {
+  async ({ ciudad: ciudadInput, cerca: cercaInput }) => {
+    const ciudad = blankToUndefined(ciudadInput);
+    const cerca = blankToUndefined(cercaInput);
+
     let theatres = (await cineApi.getTheatres()).filter((theatre) => theatre.sellsTickets);
     if (ciudad) theatres = filterByCity(theatres, ciudad);
     if (theatres.length === 0) return fail(`No hay teatros que coincidan con "${ciudad ?? ''}".`);
@@ -190,24 +211,33 @@ server.tool(
     fecha: z.string().optional().describe('Fecha en formato DD-MM-YYYY'),
   },
   async ({ pelicula, ciudad, teatro, fecha }) => {
-    const film = searchFilms(await cineApi.getFilms(), pelicula)[0];
-    if (!film) return fail(`No se encontró ninguna película que coincida con "${pelicula}".`);
+    const query = blankToUndefined(pelicula);
+    if (!query) return missing('pelicula', 'indica el título o el ID de la película.');
+
+    const film = searchFilms(await cineApi.getFilms(), query)[0];
+    if (!film) return fail(`No se encontró ninguna película que coincida con "${query}".`);
+
+    const wantedCity = blankToUndefined(ciudad);
+    const wantedTheatre = blankToUndefined(teatro);
+    const wantedDate = blankToUndefined(fecha);
 
     let businessDate: string | 'first' = 'first';
-    if (fecha) {
+    if (wantedDate) {
       try {
-        businessDate = parseUserDate(fecha);
+        businessDate = parseUserDate(wantedDate);
       } catch {
-        return fail(`"${fecha}" no es una fecha válida. Usa DD-MM-YYYY.`);
+        return fail(`"${wantedDate}" no es una fecha válida. Usa DD-MM-YYYY.`);
       }
     }
 
     const sellable = (await cineApi.getTheatres()).filter((t) => t.sellsTickets);
-    const theatres = teatro
-      ? searchTheatres(sellable, teatro).slice(0, 1)
-      : filterByCity(sellable, ciudad ?? DEFAULTS.city);
+    const theatres = wantedTheatre
+      ? searchTheatres(sellable, wantedTheatre).slice(0, 1)
+      : filterByCity(sellable, wantedCity ?? DEFAULTS.city);
 
-    if (theatres.length === 0) return fail(`No se encontraron teatros para "${teatro ?? ciudad}".`);
+    if (theatres.length === 0) {
+      return fail(`No se encontraron teatros para "${wantedTheatre ?? wantedCity}".`);
+    }
 
     const { businessDate: date, showtimes } = await cineApi.getShowtimes(businessDate, {
       filmIds: [film.id],
@@ -235,7 +265,10 @@ server.tool(
   'ver_asientos',
   'Sillas libres y ocupadas de una función, con precios de boleta.',
   { funcion: z.string().describe('ID de la función, por ejemplo 6493-7850') },
-  async ({ funcion }) => {
+  async ({ funcion: funcionInput }) => {
+    const funcion = blankToUndefined(funcionInput);
+    if (!funcion) return missing('funcion', 'usa un ID de función de ver_horarios.');
+
     try {
       const [layout, availability, ticketTypes] = await Promise.all([
         cineApi.getSeatLayout(funcion),
@@ -273,14 +306,18 @@ server.tool(
     seccion: z.string().optional().describe('Otra sección, por ejemplo sushi'),
   },
   async ({ teatro, seccion }) => {
+    const query = blankToUndefined(teatro);
+    if (!query) return missing('teatro', 'indica el nombre o el ID del teatro.');
+
     const found = searchTheatres(
       (await cineApi.getTheatres()).filter((t) => t.sellsTickets),
-      teatro
+      query
     )[0];
-    if (!found) return fail(`No se encontró el teatro "${teatro}".`);
+    if (!found) return fail(`No se encontró el teatro "${query}".`);
 
     const sections = await cineApi.getMenu(found.id);
-    const needle = (seccion ?? 'confiteria').toLowerCase();
+    // Blank must fall back to the default section, not match every section.
+    const needle = (blankToUndefined(seccion) ?? 'confiteria').toLowerCase();
     const selected = sections.filter((section) => section.name.toLowerCase().includes(needle));
 
     return json({
@@ -338,7 +375,12 @@ server.tool(
     funcion: z.string().describe('ID de la función'),
     sillas: z.string().describe('Sillas separadas por coma, por ejemplo "A5,A6"'),
   },
-  async ({ funcion, sillas }) => {
+  async ({ funcion: funcionInput, sillas: sillasInput }) => {
+    const funcion = blankToUndefined(funcionInput);
+    const sillas = blankToUndefined(sillasInput);
+    if (!funcion) return missing('funcion', 'usa un ID de función de ver_horarios.');
+    if (!sillas) return missing('sillas', 'indica las sillas, por ejemplo "A5,A6".');
+
     const [layout, availability, ticketTypes] = await Promise.all([
       cineApi.getSeatLayout(funcion),
       cineApi.getSeatAvailability(funcion, { refresh: true }),
@@ -390,12 +432,25 @@ server.tool(
     correo: z.string().optional(),
     cedula: z.string().optional(),
   },
-  async ({ funcion, sillas, confirmar, nombre, apellido, correo, cedula }) => {
+  async ({
+    funcion: funcionInput,
+    sillas: sillasInput,
+    confirmar,
+    nombre,
+    apellido,
+    correo,
+    cedula,
+  }) => {
     if (!confirmar) {
       return fail(
         'No se creó nada: "confirmar" debe ser true. Muestra primero la cotización y pide autorización explícita.'
       );
     }
+
+    const funcion = blankToUndefined(funcionInput);
+    const sillas = blankToUndefined(sillasInput);
+    if (!funcion) return missing('funcion', 'usa un ID de función de ver_horarios.');
+    if (!sillas) return missing('sillas', 'indica las sillas, por ejemplo "A5,A6".');
 
     const [showtime, layout, availability, ticketTypes] = await Promise.all([
       cineApi.getShowtime(funcion),
@@ -411,11 +466,12 @@ server.tool(
 
     // Prefer the linked account so the buyer never has to dictate personal data.
     const member = await cineApi.getMember().catch(() => null);
+    // Blank fields must not shadow the account's own details.
     const customer = {
-      givenName: nombre ?? member?.givenName ?? '',
-      familyName: apellido ?? member?.familyName ?? '',
-      email: correo ?? member?.email ?? '',
-      identification: cedula ?? member?.nationalId ?? '',
+      givenName: blankToUndefined(nombre) ?? member?.givenName ?? '',
+      familyName: blankToUndefined(apellido) ?? member?.familyName ?? '',
+      email: blankToUndefined(correo) ?? member?.email ?? '',
+      identification: blankToUndefined(cedula) ?? member?.nationalId ?? '',
     };
 
     if (!customer.givenName || !customer.email || !customer.identification) {
@@ -462,7 +518,10 @@ server.tool(
   'cancelar_orden',
   'Cancela una orden sin pagar y libera sus sillas de inmediato.',
   { orden: z.string().describe('ID de la orden') },
-  async ({ orden }) => {
+  async ({ orden: ordenInput }) => {
+    const orden = blankToUndefined(ordenInput);
+    if (!orden) return missing('orden', 'indica el ID que devolvió crear_orden.');
+
     const released = await orderService.cancelOrder(orden);
     return json({
       cancelada: released,
