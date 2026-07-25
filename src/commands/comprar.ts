@@ -28,6 +28,7 @@ import {
   type SeatSelection,
   orderService,
 } from '../services/api/order-service.js';
+import { memberSession, sessionNotice } from '../services/auth/member-session.js';
 import type { TicketType } from '../types/cine.js';
 
 export interface ComprarOptions {
@@ -328,6 +329,13 @@ function printOrderPreview(selections: ChosenSeat[], total: number): void {
  */
 async function resolveCustomer(options: ComprarOptions): Promise<CustomerDetails> {
   const member = await cineApi.getMember().catch(() => null);
+
+  // Someone who logged in earlier and is now asked to type their details would
+  // reasonably think the CLI forgot how to do its job. Say what happened.
+  if (!member && memberSession.status() === 'expired') {
+    const notice = sessionNotice('expired');
+    console.log(`\n  ${pc.yellow(notice.title)} ${pc.dim(notice.hint)}\n`);
+  }
 
   if (member) {
     const fromAccount: CustomerDetails = {

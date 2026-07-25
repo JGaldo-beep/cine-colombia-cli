@@ -39,9 +39,39 @@ export interface MemberSession {
   email: string | null;
 }
 
+/**
+ * Why the CLI is acting anonymously, which decides what to tell the person.
+ *
+ * "Never signed in" and "your session ran out" need different words: someone who
+ * did log in and is suddenly asked to type their details again deserves to know
+ * why, otherwise the CLI looks broken.
+ */
+export type MemberSessionStatus = 'active' | 'expired' | 'anonymous';
+
+/**
+ * What to tell someone the CLI is not acting as their account.
+ *
+ * Pure and shared, so `cine cuenta` and `cine comprar` cannot drift into
+ * explaining the same situation differently.
+ */
+export function sessionNotice(status: MemberSessionStatus): { title: string; hint: string } {
+  if (status === 'expired') {
+    return {
+      title: 'Tu sesión expiró.',
+      hint: 'Ejecuta "cine login" para volver a vincular tu cuenta.',
+    };
+  }
+
+  return {
+    title: 'No has iniciado sesión.',
+    hint: 'Ejecuta "cine login" para vincular tu cuenta.',
+  };
+}
+
 export class MemberSessionStore {
   private path: string;
   private memo: MemberSession | null | undefined;
+  private expired = false;
 
   constructor(cacheDir: string = CACHE_DIR) {
     this.path = join(cacheDir, SESSION_FILE);
@@ -67,10 +97,12 @@ export class MemberSessionStore {
       // user is told to log in again instead of seeing a confusing 401.
       if (typeof parsed.expiresAt === 'number' && parsed.expiresAt <= Date.now()) {
         logger.debug('La sesión de miembro guardada ya expiró');
+        this.expired = true;
         this.memo = null;
         return null;
       }
 
+      this.expired = false;
       this.memo = {
         cookie: parsed.cookie,
         capturedAt: parsed.capturedAt ?? new Date(0).toISOString(),
@@ -89,12 +121,16 @@ export class MemberSessionStore {
     mkdirSync(dirname(this.path), { recursive: true });
     // 0600: this cookie is enough to act as the account holder.
     writeFileSync(this.path, JSON.stringify(session, null, 2), { mode: 0o600 });
+    this.expired = false;
     this.memo = session;
   }
 
   /** Forget the session. Returns false when there was nothing to forget. */
   clear(): boolean {
     this.memo = null;
+    // A deliberate logout is not an expiry; it must not produce "your session
+    // ran out" on the next command.
+    this.expired = false;
     try {
       if (!existsSync(this.path)) return false;
       unlinkSync(this.path);
@@ -107,6 +143,19 @@ export class MemberSessionStore {
 
   isLoggedIn(): boolean {
     return this.load() !== null;
+  }
+
+  /** Whether there is a usable session, and if not, why not. */
+  status(): MemberSessionStatus {
+    if (this.load()) return 'active';
+    return this.expired ? 'expired' : 'anonymous';
+  }
+
+  /** Milliseconds until the session expires, or null when it has no known expiry. */
+  timeToExpiry(): number | null {
+    const session = this.load();
+    if (!session || session.expiresAt === null) return null;
+    return session.expiresAt - Date.now();
   }
 
   /** `Cookie` header value for authenticated requests, or null when logged out. */

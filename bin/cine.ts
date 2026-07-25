@@ -75,6 +75,8 @@ program
 program
   .command('login')
   .description('Vincular tu cuenta de Cine Colombia (abre el navegador)')
+  // Commander maps `--no-recordar` to `recordar: false`, so the default is on.
+  .option('--no-recordar', 'sesión corta: no marcar "Mantenerme registrado"')
   .option('--json', 'salida en JSON')
   .action(login);
 

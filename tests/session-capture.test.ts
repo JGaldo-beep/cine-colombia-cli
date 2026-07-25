@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CineError } from '../src/lib/errors.js';
 import {
   CAPTURE_EXIT,
+  clearLoginProfile,
   describeCaptureFailure,
+  loginProfilePath,
   parseCaptureResult,
 } from '../src/services/auth/session-capture.js';
 
@@ -84,5 +89,52 @@ describe('parseCaptureResult', () => {
   it('rejects contents that are not JSON', () => {
     expect(() => parseCaptureResult('no-es-json')).toThrow(/No se pudo leer/);
     expect(() => parseCaptureResult('')).toThrow(CineError);
+  });
+});
+
+describe('clearLoginProfile', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A cache dir holding a login profile with something inside it. */
+  function cacheDirWithProfile(): string {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'cine-profile-'));
+    dirs.push(cacheDir);
+    const profile = loginProfilePath(cacheDir);
+    mkdirSync(join(profile, 'Default', 'Network'), { recursive: true });
+    writeFileSync(join(profile, 'Default', 'Network', 'Cookies'), 'jar simulado');
+    return cacheDir;
+  }
+
+  it('removes the profile and everything in it', () => {
+    // Chrome persists the member cookie here, so a logout that left this behind
+    // would leave a usable credential on disk.
+    const cacheDir = cacheDirWithProfile();
+    expect(existsSync(loginProfilePath(cacheDir))).toBe(true);
+
+    expect(clearLoginProfile(cacheDir)).toBe(true);
+    expect(existsSync(loginProfilePath(cacheDir))).toBe(false);
+  });
+
+  it('reports that there was nothing to remove', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'cine-profile-'));
+    dirs.push(cacheDir);
+    expect(clearLoginProfile(cacheDir)).toBe(false);
+  });
+
+  it('is safe to call twice', () => {
+    const cacheDir = cacheDirWithProfile();
+    expect(clearLoginProfile(cacheDir)).toBe(true);
+    expect(clearLoginProfile(cacheDir)).toBe(false);
+  });
+
+  it('keeps the profile inside the cache directory', () => {
+    // The path is deleted recursively, so it must never escape the cache dir.
+    const path = loginProfilePath('data');
+    expect(path.startsWith('data')).toBe(true);
+    expect(path).not.toContain('..');
   });
 });

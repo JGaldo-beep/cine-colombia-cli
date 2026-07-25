@@ -26,13 +26,48 @@ const HELPER_PATH = 'scripts/capture-session.mjs';
 const RESULT_FILE = '.session-capture.json';
 
 /**
- * Browser profile for logins, kept between runs.
+ * Browser profile for logins, kept between runs so Chrome can remember details
+ * like the email address and make the next sign-in a shorter task.
  *
- * Reusing a profile is not just a convenience: bot protection treats a browser
- * with history as far less suspicious than a pristine one, so the second login
- * is challenged less than the first.
+ * It is not kept to appease bot protection. Measured against the live site, a
+ * headed real Chrome loads the sign-in form on a brand-new profile every time;
+ * only headless Chrome is challenged. So this is convenience, not evasion.
+ *
+ * It does hold a real credential once someone signs in: Chrome persists
+ * `vista-loyalty-member-authentication-token` here. That is why `cine logout`
+ * deletes this directory — see clearLoginProfile().
  */
 const PROFILE_DIR = 'chrome-profile';
+
+/** Absolute-ish path of the login profile, for callers that need to remove it. */
+export function loginProfilePath(cacheDir: string = CACHE_DIR): string {
+  return join(cacheDir, PROFILE_DIR);
+}
+
+/**
+ * Delete the browser profile used for logins.
+ *
+ * Without this, `cine logout` would be a half-truth: it would drop the CLI's copy
+ * of the session while Chrome kept a valid one on disk, and the next `cine login`
+ * would silently adopt it without ever asking for a password. Logging out has to
+ * mean the credential is gone.
+ *
+ * @returns whether there was a profile to delete.
+ */
+export function clearLoginProfile(cacheDir: string = CACHE_DIR): boolean {
+  const path = loginProfilePath(cacheDir);
+  if (!existsSync(path)) return false;
+
+  try {
+    rmSync(path, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    // A browser still holding the profile open is the likely cause. Say so rather
+    // than claiming a logout that did not happen.
+    logger.debug('No se pudo borrar el perfil del navegador:', error);
+    return false;
+  }
+}
 
 /** Exit codes of the helper script. Must stay in sync with it. */
 export const CAPTURE_EXIT = {
@@ -116,7 +151,13 @@ export function parseCaptureResult(contents: string): CapturedCookie {
  * Their password never reaches this process.
  */
 export async function captureMemberCookie(
-  options: { timeoutMs?: number; cacheDir?: string } = {}
+  options: {
+    timeoutMs?: number;
+    cacheDir?: string;
+    remember?: boolean;
+    /** Clear browser cookies first so a real sign-in always happens. */
+    fresh?: boolean;
+  } = {}
 ): Promise<CapturedCookie> {
   const cacheDir = options.cacheDir ?? CACHE_DIR;
   const resultPath = join(cacheDir, RESULT_FILE);
@@ -145,6 +186,13 @@ export async function captureMemberCookie(
     profilePath,
     '--timeout',
     String(options.timeoutMs ?? LOGIN_TIMEOUT_MS),
+    // Persistent by default: a session that dies in 30 minutes is useless to a
+    // CLI. See tickRememberMe() in the helper for why this changes the lifetime.
+    '--remember',
+    String(options.remember ?? true),
+    // Always begin signed out, so the form appears and the checkbox applies.
+    '--fresh',
+    String(options.fresh ?? true),
   ]);
 
   try {

@@ -19,6 +19,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { tickRememberMe } from './remember-me.mjs';
 
 /** Exit codes, mirrored by src/services/auth/session-capture.ts. */
 const EXIT = {
@@ -80,32 +81,51 @@ context.on('close', () => {
   closed = true;
 });
 
+// Never call process.exit() before the context is closed. process.exit() does not
+// unwind, so a `finally` would be skipped, and Chrome would die without flushing
+// its cookie jar to the profile — the captured login would be lost for the next
+// run. Decide the code, close, then exit.
+let exitCode = EXIT.ok;
+
 try {
+  // Start from a signed-out browser on purpose.
+  //
+  // The profile persists the session cookie, so without this the sign-in page
+  // would open already authenticated: the form would never appear, "Mantenerme
+  // registrado" could not be ticked, and the run would silently re-adopt the old
+  // cookie — including a short-lived one, forever. Clearing also means a person
+  // can sign in as somebody else.
+  if (args.fresh !== 'false') await context.clearCookies().catch(() => undefined);
+
   const page = context.pages()[0] ?? (await context.newPage());
   await page.goto(args.url, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
 
-  const found = await waitForCookie(context, args.cookie, timeoutMs);
-
-  if (!found) {
-    process.exit(closed ? EXIT.browserClosed : EXIT.timeout);
+  if (args.remember !== 'false') {
+    await tickRememberMe(page, { log: (text) => process.stderr.write(text) });
   }
 
-  mkdirSync(dirname(args.out), { recursive: true });
-  // 0600: this cookie is enough to act as the account holder.
-  writeFileSync(
-    args.out,
-    JSON.stringify({
-      cookie: found.value,
-      // Playwright reports -1 for a cookie that dies with the browser.
-      expiresAt: found.expires && found.expires > 0 ? Math.round(found.expires * 1000) : null,
-    }),
-    { mode: 0o600 }
-  );
+  const found = await waitForCookie(context, args.cookie, timeoutMs);
 
-  process.exit(EXIT.ok);
+  if (found) {
+    mkdirSync(dirname(args.out), { recursive: true });
+    // 0600: this cookie is enough to act as the account holder.
+    writeFileSync(
+      args.out,
+      JSON.stringify({
+        cookie: found.value,
+        // Playwright reports -1 for a cookie that dies with the browser.
+        expiresAt: found.expires && found.expires > 0 ? Math.round(found.expires * 1000) : null,
+      }),
+      { mode: 0o600 }
+    );
+  } else {
+    exitCode = closed ? EXIT.browserClosed : EXIT.timeout;
+  }
 } finally {
   await context.close().catch(() => undefined);
 }
+
+process.exit(exitCode);
 
 async function waitForCookie(ctx, name, budgetMs) {
   const deadline = Date.now() + budgetMs;

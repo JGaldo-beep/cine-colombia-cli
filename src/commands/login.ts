@@ -13,13 +13,15 @@
 
 import pc from 'picocolors';
 import { CineError } from '../lib/errors.js';
-import { formatDateShort, formatMoney, formatTime } from '../lib/format.js';
+import { formatDateShort, formatMoney, formatTime, formatTimeRemaining } from '../lib/format.js';
 import { cineApi } from '../services/api/ocapi-client.js';
-import { memberSession } from '../services/auth/member-session.js';
-import { captureMemberCookie } from '../services/auth/session-capture.js';
+import { memberSession, sessionNotice } from '../services/auth/member-session.js';
+import { captureMemberCookie, clearLoginProfile } from '../services/auth/session-capture.js';
 
 export interface LoginOptions {
   json?: boolean;
+  /** Keep the session alive beyond 30 minutes. On by default; see below. */
+  recordar?: boolean;
 }
 
 export async function login(options: LoginOptions = {}): Promise<void> {
@@ -32,7 +34,10 @@ export async function login(options: LoginOptions = {}): Promise<void> {
 
   console.log(pc.dim('  Esperando a que completes el inicio de sesión...'));
 
-  const captured = await captureMemberCookie();
+  // Persistence is the default because the alternative is a 30-minute session,
+  // which expires mid-task. `--no-recordar` exists for a shared machine, where a
+  // long-lived cookie on disk is the bigger risk.
+  const captured = await captureMemberCookie({ remember: options.recordar ?? true });
 
   memberSession.save({
     cookie: captured.cookie,
@@ -70,8 +75,12 @@ export async function login(options: LoginOptions = {}): Promise<void> {
 
 export function logout(): void {
   const had = memberSession.clear();
+  // Chrome persists the same session cookie in the login profile, so dropping only
+  // the CLI's copy would leave a usable credential on disk.
+  const hadProfile = clearLoginProfile();
+
   console.log(
-    had
+    had || hadProfile
       ? `\n${pc.green('✓')} Sesión cerrada.\n`
       : `\n${pc.dim('No había ninguna sesión guardada.')}\n`
   );
@@ -86,12 +95,17 @@ export async function cuenta(options: CuentaOptions = {}): Promise<void> {
   const member = await cineApi.getMember();
 
   if (!member) {
+    // A cookie that is still within its expiry but rejected by the API was
+    // revoked server-side; that is neither "expired" nor "never signed in".
+    const status = memberSession.status() === 'active' ? 'expired' : memberSession.status();
+    const notice = sessionNotice(status);
+
     if (options.json) {
-      console.log(JSON.stringify({ loggedIn: false }, null, 2));
+      console.log(JSON.stringify({ loggedIn: false, reason: status }, null, 2));
       return;
     }
-    console.log(`\n${pc.yellow('No has iniciado sesión.')}`);
-    console.log(pc.dim('  Ejecuta "cine login" para vincular tu cuenta.\n'));
+    console.log(`\n${pc.yellow(notice.title)}`);
+    console.log(pc.dim(`  ${notice.hint}\n`));
     return;
   }
 
@@ -109,6 +123,8 @@ export async function cuenta(options: CuentaOptions = {}): Promise<void> {
     ['Desde', formatDateShort(member.memberSince)],
   ];
   if (member.clubLevelId !== null) facts.push(['Nivel', String(member.clubLevelId)]);
+  // Surfaced so a short session is visible before it bites, rather than after.
+  facts.push(['Sesión', `vence ${formatTimeRemaining(memberSession.timeToExpiry())}`]);
 
   const width = Math.max(...facts.map(([label]) => label.length));
   for (const [label, value] of facts) {

@@ -21,6 +21,26 @@ export function formatRuntime(minutes: number | null | undefined): string {
 }
 
 /**
+ * Turn a remaining duration into "en 25 minutos" / "en 3 días".
+ *
+ * Coarse on purpose: the point is to let someone judge whether their session
+ * will outlast what they are about to do, not to count down precisely.
+ */
+export function formatTimeRemaining(ms: number | null): string {
+  if (ms === null) return 'sin vencimiento conocido';
+  if (ms <= 0) return 'vencida';
+
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `en ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `en ${hours} ${hours === 1 ? 'hora' : 'horas'}`;
+
+  const days = Math.round(hours / 24);
+  return `en ${days} ${days === 1 ? 'día' : 'días'}`;
+}
+
+/**
  * Render an ISO timestamp as a wall-clock time, e.g. "7:30 PM".
  *
  * `Intl` renders Spanish meridiems as "p. m."; we compact that to "PM" so
