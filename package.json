@@ -1,0 +1,61 @@
+{
+  "name": "cine-colombia-cli",
+  "version": "0.1.0",
+  "description": "Cartelera, horarios, mapa de sillas y compra de boletas de Cine Colombia desde la terminal, con servidor MCP",
+  "type": "module",
+  "bin": {
+    "cine": "./bin/cine.ts"
+  },
+  "scripts": {
+    "dev": "bun run bin/cine.ts",
+    "build": "bun build bin/cine.ts --compile --outfile cine",
+    "smoke": "bun run scripts/smoke.ts",
+    "test": "bun test",
+    "type-check": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "mcp": "bun run src/mcp/server.ts"
+  },
+  "keywords": [
+    "cine",
+    "colombia",
+    "cli",
+    "movies",
+    "cartelera",
+    "boletas",
+    "mcp",
+    "vista-cinema",
+    "bun"
+  ],
+  "author": "Juan Antonio Galdo",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "chalk": "^5.6.2",
+    "commander": "^12.0.0",
+    "picocolors": "^1.1.1",
+    "playwright": "^1.40.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JGaldo-beep/cine-colombia-cli.git"
+  },
+  "homepage": "https://github.com/JGaldo-beep/cine-colombia-cli#readme",
+  "bugs": {
+    "url": "https://github.com/JGaldo-beep/cine-colombia-cli/issues"
+  }
+}
