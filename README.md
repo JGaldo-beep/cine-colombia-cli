@@ -18,7 +18,24 @@ Claude o cualquier agente de IA.
   ○ libre   ● ocupada   × fuera de servicio
 ```
 
-## Instalación
+## Probarlo sin instalar nada
+
+```bash
+npx cine-colombia-cli cartelera --ciudad bogota
+npx cine-colombia-cli asientos 6461-18858
+```
+
+Requiere Node 20+. Nada más: la caché y las credenciales van a
+`~/.cine-colombia-cli`, nunca al directorio donde estés parado.
+
+Para dejarlo como comando permanente:
+
+```bash
+npm install -g cine-colombia-cli
+cine cartelera
+```
+
+## Instalación para desarrollo
 
 Requiere [Bun](https://bun.sh) 1.2+.
 
@@ -28,11 +45,21 @@ cd cine-colombia-cli
 bun install
 ```
 
+El código fuente corre con Bun; lo que se publica en npm es un bundle que corre con
+Node, para no obligar a nadie a instalar Bun solo para probar la CLI.
+
 Consultar la cartelera, los horarios, las sillas y comprar como invitado funciona solo
 con eso. **`cine login` necesita además Node.js** en el PATH, porque el paso del
 navegador corre en un subproceso Node: `chromium.launch()` de Playwright nunca retorna
 bajo Bun en Windows. Sin Node, el resto de la CLI funciona igual y solo `login` avisa
 que falta.
+
+Otra consecuencia del mismo asunto: el paquete publicado no usa ninguna API exclusiva
+de Bun. Los subprocesos (`curl`, el navegador del login) y el hash de la caché van por
+`node:child_process` y `node:crypto`. Con `Bun.spawn` la estrategia `curl` se
+declaraba no disponible bajo Node, quedaba solo `fetch`, y **todo respondía con un
+desafío de Cloudflare**: la CLI parecía rota para cualquiera que la instalara en vez de
+clonarla.
 
 Opcional, para dejarlo como comando global:
 
@@ -223,7 +250,22 @@ Agregá esto a tu `claude_desktop_config.json`:
 
 Reiniciá Claude Desktop y las herramientas aparecen disponibles.
 
-### Claude Code
+### Sin clonar el repo
+
+Si lo instalaste desde npm, el servidor MCP es un ejecutable más del paquete:
+
+```json
+{
+  "mcpServers": {
+    "cine-colombia": {
+      "command": "npx",
+      "args": ["-y", "--package=cine-colombia-cli", "cine-mcp"]
+    }
+  }
+}
+```
+
+### Claude Code, clonando el repo
 
 **No hace falta configurar nada.** El repo trae un `.mcp.json` con alcance de proyecto,
 así que basta con entrar y abrir Claude:

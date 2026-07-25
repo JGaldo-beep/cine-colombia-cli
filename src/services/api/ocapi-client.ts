@@ -4,6 +4,7 @@
 // internal and unversioned in practice, so every response is treated as
 // potentially incomplete and mapped into our own domain types.
 
+import { createHash } from 'node:crypto';
 import { DEFAULTS } from '../../config/constants.js';
 import { ApiError, NetworkError } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
@@ -56,9 +57,13 @@ import { toMember, toMemberOrders, toMenuSections } from './member-mappers.js';
  *
  * Showtime queries carry long repeated `siteIds` lists that would otherwise blow
  * past filename length limits, so the path is folded into a hash instead.
+ *
+ * Con `node:crypto` y no con `Bun.hash`: el build publicado corre bajo Node puro, y
+ * ahí `Bun` no existe. Se recorta a 12 caracteres porque solo hace falta que el
+ * nombre de archivo sea corto y estable, no resistente a colisiones adversarias.
  */
 function hashKey(value: string): string {
-  return Bun.hash(value).toString(36);
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
 
 export interface ShowtimeQuery {

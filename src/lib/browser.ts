@@ -1,5 +1,6 @@
 // Handing a URL to the user's default browser.
 
+import { spawn } from 'node:child_process';
 import { logger } from './logger.js';
 
 /**
@@ -21,14 +22,22 @@ export async function openInBrowser(url: string): Promise<boolean> {
   const command = commandFor(url);
   if (!command) return false;
 
-  try {
-    const proc = Bun.spawn(command, { stdout: 'ignore', stderr: 'ignore' });
-    // `start` and `open` exit as soon as the browser is handed the URL.
-    return (await proc.exited) === 0;
-  } catch (error) {
-    logger.debug('No se pudo abrir el navegador:', error);
-    return false;
-  }
+  // `node:child_process` y no `Bun.spawn`: el build publicado corre bajo Node puro.
+  return new Promise((resolve) => {
+    try {
+      const [file, ...args] = command;
+      const child = spawn(file as string, args, { stdio: 'ignore' });
+      child.on('error', (error) => {
+        logger.debug('No se pudo abrir el navegador:', error);
+        resolve(false);
+      });
+      // `start` y `open` terminan en cuanto le pasan la URL al navegador.
+      child.on('close', (code) => resolve(code === 0));
+    } catch (error) {
+      logger.debug('No se pudo abrir el navegador:', error);
+      resolve(false);
+    }
+  });
 }
 
 function commandFor(url: string): string[] | null {

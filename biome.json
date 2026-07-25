@@ -4,7 +4,7 @@
     "enabled": true
   },
   "files": {
-    "ignore": ["data/**", "node_modules/**", "tmpclaude-*"]
+    "ignore": ["data/**", "dist/**", "node_modules/**", "tmpclaude-*"]
   },
   "linter": {
     "enabled": true,

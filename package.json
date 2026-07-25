@@ -4,18 +4,20 @@
   "description": "Cartelera, horarios, mapa de sillas y compra de boletas de Cine Colombia desde la terminal, con servidor MCP",
   "type": "module",
   "bin": {
-    "cine": "./bin/cine.ts"
+    "cine": "./dist/cine.js",
+    "cine-mcp": "./dist/mcp.js"
   },
   "scripts": {
     "dev": "bun run bin/cine.ts",
-    "build": "bun build bin/cine.ts --compile --outfile cine",
+    "build": "bun build bin/cine.ts --target=node --packages=external --outfile dist/cine.js && bun build src/mcp/server.ts --target=node --packages=external --outfile dist/mcp.js && bun run scripts/fix-shebang.mjs",
     "smoke": "bun run scripts/smoke.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "mcp": "bun run src/mcp/server.ts"
+    "mcp": "bun run src/mcp/server.ts",
+    "prepublishOnly": "bun run build && bun test && bun run type-check && bun run lint"
   },
   "keywords": [
     "cine",
@@ -45,7 +47,7 @@
     "typescript": "^5.6.0"
   },
   "engines": {
-    "bun": ">=1.2.0"
+    "node": ">=20"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -57,5 +59,12 @@
   "homepage": "https://github.com/JGaldo-beep/cine-colombia-cli#readme",
   "bugs": {
     "url": "https://github.com/JGaldo-beep/cine-colombia-cli/issues"
-  }
+  },
+  "files": [
+    "dist/",
+    "scripts/capture-session.mjs",
+    "scripts/remember-me.mjs",
+    "README.md",
+    "LICENSE"
+  ]
 }

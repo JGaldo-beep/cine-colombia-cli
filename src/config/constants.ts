@@ -1,7 +1,12 @@
 // Application constants for Cine Colombia CLI
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/** Carpeta del usuario donde viven caché y credenciales. */
+const CONFIG_DIR_NAME = '.cine-colombia-cli';
 
 export const APP_NAME = 'cine-colombia-cli';
 export const APP_VERSION = '0.1.0';
@@ -79,24 +84,45 @@ export const DEFAULTS = {
 export const TOKEN_REFRESH_BUFFER_MINUTES = 10;
 
 /**
- * Where this installation lives, derived from this file's own location.
+ * Where this installation's own files live.
  *
- * Anchoring to the module rather than to `process.cwd()` matters because the CLI is
- * not always launched from the project directory. An MCP client starts the server
- * with whatever working directory it happens to have, and a globally installed
- * `cine` runs wherever the person is standing. With a relative path the effect was
- * quiet and confusing rather than loud: the token cache and the session file were
- * looked up in the wrong place, so `ver_cuenta` answered "no hay sesión" while a
- * perfectly good session sat on disk, and caches were written into unrelated
- * directories.
+ * Found by walking up from this module until a directory contains the login helper,
+ * rather than assuming a fixed number of levels. The bundled build collapses
+ * `src/config/constants.ts` into a single file at a different depth, so counting
+ * `../..` works in the repo and breaks once published.
  */
-export const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const PROJECT_ROOT = findInstallRoot();
 
-/** Cache directory, absolute so it does not follow the working directory. */
-export const CACHE_DIR = join(PROJECT_ROOT, 'data');
+function findInstallRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(dir, 'scripts', 'capture-session.mjs'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Nothing found: fall back to two levels up, which is right in the repo layout.
+  return join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+}
+
+/**
+ * Where the token cache and the account session are kept.
+ *
+ * In the user's home directory, not inside the package. Two reasons, and both bite
+ * only once installed: `npx` unpacks the package into a throwaway cache, so anything
+ * written there is lost between runs; and a globally installed CLI writing into
+ * `node_modules` is both surprising and often not writable.
+ *
+ * Anchoring to `process.cwd()` was worse still — it scattered caches into whatever
+ * directory the person happened to be standing in, and made `ver_cuenta` answer "no
+ * hay sesión" with a perfectly good session on disk.
+ */
+export const CACHE_DIR = join(homedir(), CONFIG_DIR_NAME);
 
 /** Token cache lives alongside other cached data but is treated as a secret. */
 export const TOKEN_CACHE_FILE = '.auth-token.json';
 
-// User config directory (for saved preferences)
-export const CONFIG_DIR = '.cine-colombia-cli';
+// Kept for callers that only want the folder name.
+export const CONFIG_DIR = CONFIG_DIR_NAME;

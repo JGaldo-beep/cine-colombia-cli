@@ -12,6 +12,7 @@
 // See `BROWSER_HEADERS` for the exact rules, including which headers must *not*
 // be sent.
 
+import { spawn } from 'node:child_process';
 import { BROWSER_HEADERS, DEFAULTS } from '../../config/constants.js';
 import { logger } from '../../lib/logger.js';
 
@@ -96,26 +97,19 @@ const STRATEGIES: Record<StrategyName, Strategy> = {
         `${key}: ${value}`,
       ]);
 
-      const proc = Bun.spawn(
-        [
-          'curl',
-          '--silent',
-          '--location',
-          '--compressed',
-          '--max-time',
-          String(Math.ceil(DEFAULTS.timeout / 1000)),
-          ...headerArgs,
-          // Emit the status code after the body so we can read both from stdout
-          // without juggling temp files.
-          '--write-out',
-          `\n${STATUS_SENTINEL}%{http_code}`,
-          url,
-        ],
-        { stdout: 'pipe', stderr: 'pipe' }
-      );
-
-      const stdout = await new Response(proc.stdout).text();
-      await proc.exited;
+      const { stdout } = await run('curl', [
+        '--silent',
+        '--location',
+        '--compressed',
+        '--max-time',
+        String(Math.ceil(DEFAULTS.timeout / 1000)),
+        ...headerArgs,
+        // Emit the status code after the body so we can read both from stdout
+        // without juggling temp files.
+        '--write-out',
+        `\n${STATUS_SENTINEL}%{http_code}`,
+        url,
+      ]);
 
       const index = stdout.lastIndexOf(STATUS_SENTINEL);
       if (index === -1) return { status: 0, body: stdout };
@@ -145,14 +139,40 @@ const STRATEGIES: Record<StrategyName, Strategy> = {
 
 const STATUS_SENTINEL = '__CINE_HTTP_STATUS__';
 
+/**
+ * Run a command and collect its output.
+ *
+ * Uses `node:child_process` rather than `Bun.spawn` on purpose: the published build
+ * runs under plain Node, where `Bun` does not exist. With `Bun.spawn` the curl
+ * strategy silently reported itself unavailable, only `fetch` was left, and every
+ * request came back as a Cloudflare challenge — the CLI looked broken for anyone who
+ * installed it instead of cloning it.
+ */
+function run(command: string, args: string[]): Promise<{ stdout: string; code: number }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    child.stdout?.setEncoding('utf-8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    // Draining stderr keeps the pipe from filling and stalling the child.
+    child.stderr?.resume();
+
+    child.on('error', () => resolve({ stdout: '', code: -1 }));
+    child.on('close', (code: number | null) => resolve({ stdout, code: code ?? -1 }));
+  });
+}
+
 let curlProbe: Promise<boolean> | null = null;
 
 /** Probe once per process; the answer cannot change while we run. */
 function curlAvailable(): Promise<boolean> {
   curlProbe ??= (async () => {
     try {
-      const proc = Bun.spawn(['curl', '--version'], { stdout: 'pipe', stderr: 'pipe' });
-      return (await proc.exited) === 0;
+      const { code } = await run('curl', ['--version']);
+      return code === 0;
     } catch {
       return false;
     }
