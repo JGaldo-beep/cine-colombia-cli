@@ -256,6 +256,18 @@ export class OcapiClient {
    * Complements `getSeatLayout`: the layout says which seats exist, this says
    * which are free. Barely cached, because showing a taken seat as available
    * sends someone to the wrong chair.
+   *
+   * **This endpoint is eventually consistent**, and `refresh: true` does not help
+   * because the lag is on their side, not in this cache. Measured against the live
+   * API around a reservation:
+   *
+   *   holding a seat  -> still reported free at +12ms, reported taken at ~1.8s
+   *   cancelling      -> reported free again within a few seconds
+   *
+   * So a read taken immediately after a write will contradict the write. Do not
+   * use this to confirm that an order succeeded or that a cancellation released
+   * the seats; the order endpoints are the authority. Give it a couple of seconds
+   * before trusting it as a fresh view.
    */
   async getSeatAvailability(
     showtimeId: string,

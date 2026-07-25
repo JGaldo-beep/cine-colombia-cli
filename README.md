@@ -276,6 +276,16 @@ Dos cosas verificadas contra la API en vivo:
   no tiene ningún claim de usuario; enviar la cookie
   `vista-loyalty-member-authentication-token` es lo que convierte un 401 en 200 en
   `GET /ocapi/v1/members/current`.
+- **`seat-availability` es eventualmente consistente**, con uno o dos segundos de
+  retraso, y forzar el refresco no ayuda porque el retraso es del servidor. Medido
+  alrededor de una reserva real: la silla seguía reportándose libre a los 12 ms y
+  aparecía tomada a los ~1,8 s; al cancelar volvió a libre en pocos segundos. Por eso
+  **no sirve para confirmar que una orden se creó o que una cancelación liberó las
+  sillas** — los endpoints de la orden son la autoridad. Una lectura inmediatamente
+  después de escribir contradice a la escritura.
+
+La URL que devuelve `payments/redirect` es la pasarela de Vista
+(`cineco-wpm.app.vista.co/Request.aspx?token=...`), que a su vez lleva a PlacetoPay.
 
 ### La parte incómoda: Cloudflare
 
