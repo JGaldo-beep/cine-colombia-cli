@@ -21,7 +21,7 @@ import { DEFAULTS } from '../config/constants.js';
 import { matchTicketTypeForArea, resolveSeatCodes, seatCode } from '../lib/booking.js';
 import { formatBusinessDate, formatMoney, formatTime, parseUserDate } from '../lib/format.js';
 import { filterByCity, listCities, searchFilms, searchTheatres } from '../lib/search.js';
-import { listAvailableSeats, summariseAvailableSeats } from '../lib/seat-map.js';
+import { listAvailableSeats, renderSeatMap, summariseAvailableSeats } from '../lib/seat-map.js';
 import { blankToUndefined } from '../lib/text.js';
 import { cineApi } from '../services/api/ocapi-client.js';
 import { orderService } from '../services/api/order-service.js';
@@ -263,7 +263,9 @@ server.tool(
 
 server.tool(
   'ver_asientos',
-  'Sillas libres y ocupadas de una función, con precios de boleta.',
+  'Sillas libres y ocupadas de una función, con precios de boleta. Devuelve además un ' +
+    'mapa de la sala en texto, ya dibujado: mostrálo tal cual, sin redibujarlo, para que ' +
+    'la persona vea dónde está cada silla respecto de la pantalla.',
   { funcion: z.string().describe('ID de la función, por ejemplo 6493-7850') },
   async ({ funcion: funcionInput }) => {
     const funcion = blankToUndefined(funcionInput);
@@ -278,7 +280,7 @@ server.tool(
 
       const free = listAvailableSeats(layout, availability);
 
-      return json({
+      const data = {
         funcion,
         agotada: availability.isSoldOut,
         libres: availability.availableCount,
@@ -291,7 +293,26 @@ server.tool(
         boletas: ticketTypes
           .filter((type) => !type.isRestricted)
           .map((type) => ({ id: type.id, nombre: type.name, precio: type.price })),
-      });
+      };
+
+      // The map goes in its own block, as plain text.
+      //
+      // A list of free seat numbers answers "is there space"; the map answers "where
+      // will I be sitting", which is the actual question. Rendered here rather than
+      // left to the model because the geometry is not in the JSON: which rows are
+      // closer to the screen, where the aisles fall, and that the alphabet runs
+      // continuously across areas. A model asked to draw it would invent a plausible
+      // room instead of this one. Uncoloured because ANSI escapes in a tool result
+      // are noise to whatever is reading it.
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: renderSeatMap(layout, availability, { plain: true }).join('\n'),
+          },
+          { type: 'text' as const, text: JSON.stringify(data, null, 2) },
+        ],
+      };
     } catch {
       return fail(`No se encontró la función "${funcion}" o ya terminó.`);
     }
