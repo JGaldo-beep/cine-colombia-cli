@@ -399,18 +399,28 @@ sitio en vivo:
 
 | Request | Resultado |
 |---|---|
-| `User-Agent: <chrome>` | 200 + token |
-| `user-agent: <chrome>` | 403 challenge |
+| `User-Agent: <chrome>`, HTTP/1.1 | 200 + token |
+| `user-agent: <chrome>`, HTTP/1.1 | 403 challenge |
 | sin user agent | 403 challenge |
-| se agrega `Accept: text/html,...` | 403 challenge |
+| `User-Agent: <chrome>`, **HTTP/2** | **403 challenge** |
 
-Dos consecuencias que están documentadas en el código y **no hay que "limpiar"**:
+Tres consecuencias que están documentadas en el código y **no hay que "limpiar"**:
 
-1. El `fetch` del runtime no puede servir para esto: la spec de `Headers` obliga a pasar
-   los nombres a minúsculas, así que es incapaz de mandar `User-Agent`. Por eso la
-   estrategia principal es un subproceso `curl`, que sí preserva el casing.
-2. No se manda `Accept`. Un `Accept` de navegador desde un cliente que no lo es se
-   interpreta como incoherencia y se castiga con challenge.
+1. **La petición tiene que ir por HTTP/1.1.** HTTP/2 obliga a que todo nombre de header
+   vaya en minúsculas (RFC 9113 §8.2.1), así que al negociar h2 el propio protocolo
+   reescribe `User-Agent` como `user-agent` y dispara justo la regla que estos headers
+   existen para satisfacer. `curl` elige h2 por ALPN cuando está compilado con nghttp2,
+   que es la mayoría de builds actuales, así que sin `--http1.1` la CLI funciona o falla
+   según cómo se compiló el `curl` de cada máquina.
+2. El `fetch` del runtime queda descartado igual, pero **no por el casing**: undici manda
+   el nombre tal cual se lo pasás (verificado capturando los bytes crudos de la
+   petición). Lo que falla está por debajo del header: la huella TLS. Todas las
+   combinaciones de headers probadas dieron 403 tanto en Node como en Bun, incluida la
+   exacta con la que `curl` responde 200. Por eso el subproceso `curl` no es una
+   comodidad sino un requisito.
+3. `Accept` ya no cambia el resultado: con HTTP/1.1 y el `User-Agent` correcto, agregar
+   un `Accept` de navegador devuelve 200 + token. La regla anterior quedó sobreajustada
+   a una configuración de Cloudflare que ya no está.
 
 Si ambas estrategias fallan, la CLI lo dice explícitamente. `CINE_FETCH_STRATEGY=fetch,curl`
 permite forzar el orden.

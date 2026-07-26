@@ -1,10 +1,22 @@
 // HTML retrieval strategies for the Cloudflare-protected token page.
 //
 // Cloudflare here discriminates on the raw HTTP/1.1 header names: `User-Agent`
-// gets through, `user-agent` gets a 403 challenge. The WHATWG `Headers` spec
-// requires lowercasing every name, so the runtime's `fetch` physically cannot
-// send a title-cased header and will always be challenged on this site. A curl
-// subprocess can, which is why curl leads the order.
+// gets through, `user-agent` gets a 403 challenge. Two consequences, both
+// measured against the live site rather than reasoned about:
+//
+//  1. The request must be HTTP/1.1. HTTP/2 mandates lowercase field names
+//     (RFC 9113 §8.2.1), so h2 rewrites `User-Agent` to `user-agent` and trips
+//     the very rule these headers exist to satisfy. `buildCurlArgs` pins
+//     `--http1.1` for that reason; without it the outcome depends on whether the
+//     local curl happens to negotiate h2 via ALPN.
+//
+//  2. `fetch` is challenged here regardless of headers — but *not* because of
+//     casing. Undici transmits the header name as supplied (verified by
+//     capturing the raw request bytes), so `User-Agent` does survive. What fails
+//     is below the header layer: the TLS fingerprint. Every header combination
+//     tried returned 403 under both Node and Bun, including the exact set curl
+//     succeeds with. A curl subprocess is load-bearing, not merely convenient,
+//     which is why curl leads the order.
 //
 // `fetch` is kept as a fallback purely for environments without curl, and for the
 // day Cloudflare's configuration changes.
@@ -92,24 +104,7 @@ const STRATEGIES: Record<StrategyName, Strategy> = {
   curl: {
     isAvailable: async () => curlAvailable(),
     run: async (url) => {
-      const headerArgs = Object.entries(BROWSER_HEADERS).flatMap(([key, value]) => [
-        '-H',
-        `${key}: ${value}`,
-      ]);
-
-      const { stdout } = await run('curl', [
-        '--silent',
-        '--location',
-        '--compressed',
-        '--max-time',
-        String(Math.ceil(DEFAULTS.timeout / 1000)),
-        ...headerArgs,
-        // Emit the status code after the body so we can read both from stdout
-        // without juggling temp files.
-        '--write-out',
-        `\n${STATUS_SENTINEL}%{http_code}`,
-        url,
-      ]);
+      const { stdout } = await run('curl', buildCurlArgs(url));
 
       const index = stdout.lastIndexOf(STATUS_SENTINEL);
       if (index === -1) return { status: 0, body: stdout };
@@ -138,6 +133,51 @@ const STRATEGIES: Record<StrategyName, Strategy> = {
 };
 
 const STATUS_SENTINEL = '__CINE_HTTP_STATUS__';
+
+/**
+ * Build the curl argument list for the token page.
+ *
+ * Exported so the invariants below can be asserted in a test rather than trusted.
+ *
+ * `--http1.1` is load-bearing and must not be removed. Cloudflare's rule keys on
+ * the raw header name `User-Agent` being title-cased, but **HTTP/2 requires every
+ * field name to be lowercase** (RFC 9113 §8.2.1), so the protocol itself rewrites
+ * `User-Agent` to `user-agent` before it reaches the wire. Negotiating h2 trips
+ * the rule these headers exist to satisfy.
+ *
+ * curl selects h2 via ALPN by default against Cloudflare whenever it is built
+ * with nghttp2, which most current builds are. Measured against the live site,
+ * same host, same IP, same headers, minutes apart:
+ *
+ *   curl --http1.1 ... -> 200 + token
+ *   curl --http2   ... -> 403 challenge
+ *   curl (default) ... -> negotiates h2 -> 403 challenge
+ *
+ * So without this flag the CLI works or fails purely on how the local curl was
+ * compiled. See tests/html-fetcher.test.ts.
+ */
+export function buildCurlArgs(url: string): string[] {
+  const headerArgs = Object.entries(BROWSER_HEADERS).flatMap(([key, value]) => [
+    '-H',
+    `${key}: ${value}`,
+  ]);
+
+  return [
+    '--silent',
+    '--location',
+    '--compressed',
+    // Pin HTTP/1.1: h2 would lowercase the header names and get us challenged.
+    '--http1.1',
+    '--max-time',
+    String(Math.ceil(DEFAULTS.timeout / 1000)),
+    ...headerArgs,
+    // Emit the status code after the body so we can read both from stdout
+    // without juggling temp files.
+    '--write-out',
+    `\n${STATUS_SENTINEL}%{http_code}`,
+    url,
+  ];
+}
 
 /**
  * Run a command and collect its output.
